@@ -1,0 +1,70 @@
+# Dockerfile for Apple M1/M2/M3 Chips (ARM64)
+# Optimized for basic text file upload functionality
+
+# Base node image for ARM64
+FROM --platform=linux/arm64 node:20-alpine AS base
+
+# Install dependencies for ARM64
+RUN apk add --no-cache \
+    jemalloc \
+    python3 \
+    make \
+    g++ \
+    libc6-compat
+
+# Set environment variable to use jemalloc
+ENV LD_PRELOAD=/usr/lib/libjemalloc.so.2
+
+# Add `uv` for extended MCP support
+COPY --from=ghcr.io/astral-sh/uv:0.6.13 /uv /uvx /bin/
+RUN uv --version
+
+# Create app directory and set permissions
+RUN mkdir -p /app && chown node:node /app
+WORKDIR /app
+
+# Switch to node user for security
+USER node
+
+# Copy package files first for better caching
+COPY --chown=node:node package*.json ./
+COPY --chown=node:node api/package*.json ./api/
+COPY --chown=node:node client/package*.json ./client/
+COPY --chown=node:node packages/data-provider/package*.json ./packages/data-provider/
+COPY --chown=node:node packages/data-schemas/package*.json ./packages/data-schemas/
+COPY --chown=node:node packages/mcp/package*.json ./packages/mcp/
+
+# Install dependencies with retry and timeout settings
+RUN npm config set fetch-retry-maxtimeout 600000 && \
+    npm config set fetch-retries 5 && \
+    npm config set fetch-retry-mintimeout 15000 && \
+    npm install --no-audit --platform=linux --arch=arm64
+
+# Copy source code
+COPY --chown=node:node . .
+
+# Create necessary directories
+RUN mkdir -p /app/client/public/images /app/api/logs /app/uploads
+
+# Build the application
+RUN NODE_OPTIONS="--max-old-space-size=2048" npm run frontend && \
+    npm prune --production && \
+    npm cache clean --force
+
+# Create .env file if it doesn't exist
+RUN touch .env
+
+# Expose port
+EXPOSE 8732
+
+# Set environment variables
+ENV HOST=0.0.0.0
+ENV PORT=8732
+ENV NODE_ENV=production
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8732/api/health || exit 1
+
+# Start the application
+CMD ["npm", "run", "backend"]

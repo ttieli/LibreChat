@@ -1,0 +1,83 @@
+# LibreChat Docker Compose for Apple M1/M2/M3 Chips
+# Simplified version with basic text file upload functionality (no RAG)
+# Uses non-standard ports for security
+
+services:
+  api:
+    container_name: LibreChat-M1
+    ports:
+      - "8732:8732"  # Non-standard port instead of 3080
+    depends_on:
+      - mongodb
+      - meilisearch
+    build:
+      context: .
+      dockerfile: Dockerfile.m1
+      platforms:
+        - linux/arm64
+    restart: always
+    platform: linux/arm64
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8732
+      - MONGO_URI=mongodb://mongodb:27017/LibreChat
+      - MEILI_HOST=http://meilisearch:7701
+      - NODE_ENV=production
+      # File upload settings
+      - FILE_UPLOAD_MAX_SIZE=20971520  # 20MB
+      - FILE_UPLOAD_TYPES=txt,md,json,csv,html,xml,yaml,yml,log
+      # Basic auth settings
+      - ALLOW_REGISTRATION=true
+      - ALLOW_SOCIAL_LOGIN=false
+      - ALLOW_SOCIAL_REGISTRATION=false
+      # Disable RAG and AI features we don't need
+      - RAG_ENABLED=false
+      - SEARCH_ENABLED=false
+    volumes:
+      - type: bind
+        source: ./.env.m1
+        target: /app/.env
+      - ./uploads:/app/uploads
+      - ./logs:/app/api/logs
+      - ./librechat.m1.yaml:/app/librechat.yaml
+    networks:
+      - librechat-network
+
+  mongodb:
+    container_name: librechat-mongodb-m1
+    image: mongo:7.0
+    platform: linux/arm64
+    restart: always
+    ports:
+      - "28017:27017"  # Non-standard port for MongoDB
+    volumes:
+      - ./data-mongo:/data/db
+    command: mongod --noauth --bind_ip_all
+    networks:
+      - librechat-network
+
+  meilisearch:
+    container_name: librechat-meilisearch-m1
+    image: getmeili/meilisearch:v1.12.3
+    platform: linux/arm64
+    restart: always
+    ports:
+      - "7701:7701"  # Non-standard port for Meilisearch
+    environment:
+      - MEILI_HTTP_ADDR=0.0.0.0:7701
+      - MEILI_NO_ANALYTICS=true
+      - MEILI_MASTER_KEY=your-secure-master-key-change-this
+    volumes:
+      - ./meili_data:/meili_data
+    networks:
+      - librechat-network
+
+networks:
+  librechat-network:
+    driver: bridge
+
+volumes:
+  data-mongo:
+  meili_data:
+  uploads:
+  logs:
